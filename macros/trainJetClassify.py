@@ -22,7 +22,7 @@ p = OptionParser()
 
 p.add_option('-o', '--outdir',   type='string',                      default='models/')
 p.add_option('-t', '--testfile', type='string',                      default=None)
-p.add_option('--njet',           type='int',                         default=6)
+p.add_option('--njet',           type='int',                         default=10)
 p.add_option('-n', '--nevent',   type='int',                         default=None)
 p.add_option('-d', '--debug',    action='store_true',  dest='debug', default=False)
 
@@ -108,6 +108,15 @@ def oneHotLabelFast(var_labels):
 
     return np.array(one_hot_labels)
 
+#======================================================================================================        
+def sub_oneHotLabelFast(var_label):
+
+    one_hot_dict = {1:0, 4:1, 5:2, 21:3}
+
+    x = one_hot_dict[var_label]
+
+    return x
+
 #======================================================================================================
 def sub_process(x):
 
@@ -137,7 +146,8 @@ def trainRNN(train_data, train_labels):
 
     timeStart = time.time()
 
-    train_labels_bin = keras.utils.to_categorical(oneHotLabelFast(train_labels))
+    train_labels_bin = keras.utils.to_categorical(train_labels)
+    #train_labels_bin = keras.utils.to_categorical(oneHotLabelFast(train_labels))
 
     log.info('trainRNN - start')
     log.info('   train_data       len=%s, shape=%s, dtype=%s' %(len(train_data),       train_data      .shape, train_data      .dtype))
@@ -236,7 +246,7 @@ def trainMLP(train_data, train_labels, title):
     
     model.fit(train_data, train_labels_bin,
               validation_split=0.1,
-              epochs=40,
+              epochs=80,
               batch_size=10000,
               callbacks=[csv_logger])
 
@@ -318,7 +328,35 @@ def saveRNNPrediction(model, id_list, out_test_data, evtid_jetid_dict):
             label = sub_process(pdata[i])
 
             for jet_id in evtid_jetid_dict[evt_id]:
-                f.write('%s,%d'%(jet_id, label))
+                f.write('%s,%d\n'%(jet_id, label))
+
+#======================================================================================================        
+def saveRNNPrediction_fast(model, out_test_data, test_file):
+
+    outkey = "first_RNN"
+
+    if outkey == None:
+        return
+
+    fname_pred   = getOutName('%s_predictions.csv' %outkey)
+    
+    pdata = model.predict(out_test_data).argmax(axis=1)
+
+    i = 0 
+    sub = pd.DataFrame()
+
+    for evt_id, subset in test_file.groupby('event_id'):
+        label = sub_process(pdata[i])
+        i += 1
+        
+        sub_out = pd.DataFrame()
+        
+        sub_out['id']    = subset['jet_id']
+        sub_out['label'] = np.ones(len(sub_out['id']))*label
+
+        sub = pd.concat([sub, sub_out])
+    
+    sub.to_csv(fname_pred, index=False)
 
 
 #======================================================================================================        
@@ -358,7 +396,7 @@ def saveModel(model, train_data=[]):
 
 
 #======================================================================================================        
-def main_trainRNN():
+def main_trainRNN_fast():
 
     if len(args) != 1:
         log.warning('Wrong number of command line arguments: %s' %len(args))
@@ -382,6 +420,85 @@ def main_trainRNN():
     out_train_data  = np.zeros((nevt, options.njet, len(input_var_names)))
     out_train_label = np.zeros((nevt))
 
+    i = 0
+    timePrev = time.time()
+    
+    # Using groupby function will speed those code by factor ~2!
+    #   -- Much faster than expect when run on large statistics: factor > 80 in full statistics
+    for evt_id, subset in train_file.groupby('event_id'):
+        out_train_label[i] = subset['label'].apply(sub_oneHotLabelFast).values[0]
+
+        subset_data = subset[input_var_names].values
+        njet        = subset_data.shape[0]
+
+        for j in range(njet):
+            if j < options.njet:
+                out_train_data[i][j] = subset_data[j]
+        i += 1
+
+        if i % 2000 == 0:
+            log.info('main_trainRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
+            timePrev = time.time()
+
+    model = trainRNN(out_train_data, out_train_label)
+
+    saveModel(model, out_train_data)
+
+    if options.testfile and  os.path.isfile(options.testfile):
+        test_file = pd.read_csv(options.testfile)
+
+        id_list = test_file.drop_duplicates(subset=['event_id'])['event_id']
+        nevt    = len(id_list)
+
+        print("number of test events = ", nevt)
+
+        out_test_data  = np.zeros((nevt, options.njet, len(input_var_names)))
+
+        i = 0
+
+        for evt_id, subset in test_file.groupby('event_id'):
+            subset_data = subset[input_var_names].values
+            njet        = subset_data.shape[0]
+
+            for j in range(njet):
+                if j < options.njet:
+                    out_test_data[i][j] = subset_data[j]
+            i += 1
+
+            if i % 2000 == 0:
+                log.info('main_testRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
+                timePrev = time.time()
+
+        saveRNNPrediction_fast(model, out_test_data, test_file)
+ 
+
+#======================================================================================================        
+def main_trainRNN():
+
+    if len(args) != 1:
+        log.warning('Wrong number of command line arguments: %s' %len(args))
+        return
+
+    fname = args[0]
+
+    if not os.path.isfile(fname):
+        log.warning('Input file does not exist: %s' %fname)
+        return    
+    
+    train_file = pd.read_csv(fname)
+    
+    # prepare training data for RNN
+    input_var_names = ['number_of_particles_in_this_jet', 'jet_px', 'jet_py', 'jet_pz', 'jet_energy', 'jet_mass', 'jet_theta_x', 'jet_pt_x']
+    id_list = train_file.drop_duplicates(subset=['event_id'])['event_id']
+    nevt    = len(id_list)
+
+    print("number of events = ", nevt)
+
+    out_train_data  = np.zeros((nevt, options.njet, len(input_var_names)))
+    out_train_label = np.zeros((nevt))
+     
+    timePrev = time.time()
+
     for i in range(nevt):
         evt_id = id_list.values[i]
         is_same_evtid = train_file['event_id'] == evt_id
@@ -394,8 +511,13 @@ def main_trainRNN():
         out_train_label[i] = subset_label
 
         for j in range(njet):
-            if j <= options.njet:
+            if j < options.njet:
                 out_train_data[i][j] = subset_train[j]
+
+        if i % 2000 == 0:
+                log.info('main_trainRNN - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
+                timePrev = time.time()
+
 
     model = trainRNN(out_train_data, out_train_label)
 
@@ -496,7 +618,8 @@ if __name__ == '__main__':
     log.info('Start job at %s:%s' %(socket.gethostname(), os.getcwd()))
     log.info('Current time: %s' %(time.asctime(time.localtime())))
     
-    main_trainRNN()
+    main_trainRNN_fast()
+    #main_trainRNN()
 
     log.info('Local time: %s' %(time.asctime(time.localtime())))
     log.info('Total time: %.1fs' %(time.time()-timeStart))
