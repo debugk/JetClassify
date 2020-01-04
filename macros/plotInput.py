@@ -22,6 +22,7 @@ p.add_option('--outname',        type='string',        default='new_train_jet.cs
 
 p.add_option('--debug', '-d',    action='store_true',  default=False)
 p.add_option('--do-add',         action='store_true',  default=False)
+p.add_option('--do-event',       action='store_true',  default=False)
 
 (options,args) = p.parse_args()
 
@@ -234,6 +235,81 @@ def plotInterestVars(fname):
     # Save the new DataFrame
     ifile.to_csv('new_train_jet.csv', index=False)
 
+#======================================================================================================
+def plotEventVars(fname):
+
+    ''' Plot interesting variables '''
+    
+    ifile  = pd.read_csv(fname)   
+    events = ifile.groupby('event_id')
+
+    pd_event_vars = pd.DataFrame()
+    
+#    pd_event_vars['event_mass'] = events.apply(event_mass)
+#    pd_event_vars['event_njet'] = events.apply(event_njet)
+#    pd_event_vars['event_pt_x'] = events.apply(event_pt_x)
+#    pd_event_vars['event_pt_y'] = events.apply(event_pt_y)
+#    pd_event_vars['event_pt_z'] = events.apply(event_pt_z)
+
+    pd_event_vars['event_p3']      = events.apply(event_p3)
+#    pd_event_vars['event_theta_x'] = events.apply(event_theta_x)
+#    pd_event_vars['event_theta_y'] = events.apply(event_theta_y)
+#    pd_event_vars['event_theta_z'] = events.apply(event_theta_z)
+
+    pd_event_vars['label'] = events.apply(event_label)
+    
+    plt.clf()
+    phd = plt.hist(pd_event_vars['label'], range=(0, 22), bins=22, histtype='step', color='red', label='event_label', density=True)
+    plt.grid(True)
+
+    saveFig(plt, '%s.pdf' %('label_event'))
+    
+    #
+    # get 4 class indexes refs
+    #
+    class_d = pd_event_vars['label'] == 1
+    class_c = pd_event_vars['label'] == 4
+    class_b = pd_event_vars['label'] == 5
+    class_g = pd_event_vars['label'] == 21
+    
+    class_dict = {1:class_d,
+                  4:class_c,
+                  5:class_b,
+                  21:class_g
+                  }
+    # 
+    # Plot pT 
+    # 
+    for var_name in ['event_p3']:
+    #for var_name in ['event_theta_x', 'event_theta_y', 'event_theta_z']:
+    #for var_name in ['event_pt_x', 'event_pt_y', 'event_pt_z']:
+    #for var_name in ['event_mass', 'event_njet']:
+        plt.clf()
+        
+        var_class_4 = []
+
+        for label in [1, 4, 5, 21]:
+            var_class_4 += [pd_event_vars[class_dict[label] ][var_name] ]
+
+        var_max, var_min = getDataFrameRange(var_class_4)
+
+        for label in [1, 4, 5, 21]: 
+            class_name  = getClassName(label) 
+            class_color = getClassColor(class_name) 
+            select_data = pd_event_vars[class_dict[label] ][var_name]
+            
+            phd = plt.hist(select_data.values, range=(var_min, var_max), bins=100, histtype='step', color=class_color, label=class_name, density=True)
+ 
+        plt.autoscale(enable=True, axis='y', tight=None)
+        plt.legend(loc='upper right')
+        plt.xlabel(var_name)
+        plt.ylabel('Density')
+        plt.grid(True)
+        saveFig(plt, '%s.pdf' %(var_name))
+      
+    # Save the new DataFrame
+    pd_event_vars.to_csv('new_event_jet.csv', index=False)
+
 
 #======================================================================================================
 def checkSameEventID(fname):
@@ -353,6 +429,74 @@ def jet_phi_x(df):
     return math.atan(pz/py)
 
 #======================================================================================================
+# Event variable processing
+#======================================================================================================
+def event_mass(df):
+    e  = df['jet_energy'].sum()
+    px = df['jet_px'].sum()
+    py = df['jet_py'].sum()
+    pz = df['jet_pz'].sum()
+    return (e**2 - (px**2+py**2+pz**2))
+
+#======================================================================================================
+def event_label(df):
+    label = df['label'].sum()/len(df['label'])
+    return label
+
+#======================================================================================================
+def event_njet(df):
+    return len(df['label'])
+
+#======================================================================================================
+def event_pt_x(df):
+    py = df['jet_py'].sum()
+    pz = df['jet_pz'].sum()
+    return (py**2 + pz**2)**0.5
+
+#======================================================================================================
+def event_pt_y(df):
+    px = df['jet_px'].sum()
+    pz = df['jet_pz'].sum()
+    return (px**2 + pz**2)**0.5
+
+#======================================================================================================
+def event_pt_z(df):
+    px = df['jet_px'].sum()
+    py = df['jet_py'].sum()
+    return (px**2 + py**2)**0.5
+
+#======================================================================================================
+def event_p3(df):
+    px = df['jet_px'].sum()
+    py = df['jet_py'].sum()
+    pz = df['jet_pz'].sum()
+    return (px**2 + py**2 + pz**2)**0.5
+
+#======================================================================================================
+def event_theta_x(df):
+    px = df['jet_px'].sum()
+    p3 = event_p3(df)
+    #p3 = df['event_p3']
+    
+    return math.acos(px/p3)
+
+#======================================================================================================
+def event_theta_y(df):
+    py = df['jet_py'].sum()
+    p3 = event_p3(df)
+    #p3 = df['event_p3']
+    
+    return math.acos(py/p3)
+
+#======================================================================================================
+def event_theta_z(df):
+    pz = df['jet_pz'].sum()
+    p3 = event_p3(df)
+    #p3 = df['event_p3']
+    
+    return math.acos(pz/p3)
+
+#======================================================================================================
 def AddNewVarsToFile(fname):
 
     ''' Add interesting variables '''
@@ -400,6 +544,9 @@ def main():
     if options.do_add:
         AddNewVarsToFile(fname)
     
+    elif options.do_event:
+        plotEventVars(fname)
+
     else:
         checkSameEventID(fname)
         #plotInterestVars(fname)

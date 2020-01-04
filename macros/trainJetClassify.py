@@ -5,6 +5,7 @@ import socket
 import sys
 import time
 import logging
+import math
 
 import h5py
 import numpy as np
@@ -15,7 +16,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from keras.models import Sequential
-from keras.layers import Dense, Dropout
+from keras.layers import Dense, Dropout, LSTM
+
+import tensorflow as tf
 
 from optparse import OptionParser
 p = OptionParser()
@@ -25,6 +28,7 @@ p.add_option('-t', '--testfile', type='string',                      default=Non
 p.add_option('--njet',           type='int',                         default=10)
 p.add_option('-n', '--nevent',   type='int',                         default=None)
 p.add_option('-d', '--debug',    action='store_true',  dest='debug', default=False)
+p.add_option('-w', '--weight',   type='string',                      default=None)
 
 
 (options,args) = p.parse_args()
@@ -140,7 +144,58 @@ def getOutName(name):
     return '%s/%s' %(outdir.rstrip('/'), name)
 
 #======================================================================================================
-def trainRNN(train_data, train_labels):
+def mycrossentropy(y_true, y_pred):
+    new_y_pred = tf.clip_by_value(y_pred, 1e-15, 1.0)
+    return keras.backend.categorical_crossentropy(y_true, new_y_pred)
+
+#======================================================================================================
+# Event variable processing
+#======================================================================================================
+def event_mass(df):
+    e  = df['jet_energy'].sum()
+    px = df['jet_px'].sum()
+    py = df['jet_py'].sum()
+    pz = df['jet_pz'].sum()
+
+    mass2 = (e**2 - (px**2+py**2+pz**2))
+
+    if mass2 > 0:
+        return mass2**0.5
+    else:
+        return -(-mass2)**0.5
+
+#======================================================================================================
+def event_njet(df):
+    return len(df['jet_id'])
+
+#======================================================================================================
+def event_p3(df):
+    px = df['jet_px'].sum()
+    py = df['jet_py'].sum()
+    pz = df['jet_pz'].sum()
+    return (px**2 + py**2 + pz**2)**0.5
+
+#======================================================================================================
+def event_theta_x(df):
+    px = df['jet_px'].sum()
+    p3 = event_p3(df)
+    
+    if p3 < 1e-15:
+        return 0
+
+    return math.acos(px/p3)
+
+#======================================================================================================
+def getEventsVars(grouped_evt):
+    pd_event_vars = pd.DataFrame()
+    pd_event_vars['event_p3']      = grouped_evt.apply(event_p3)
+    #pd_event_vars['event_mass']    = grouped_evt.apply(event_mass)
+    pd_event_vars['event_njet']    = grouped_evt.apply(event_njet)
+    pd_event_vars['event_theta_x'] = grouped_evt.apply(event_theta_x)
+   
+    return pd_event_vars 
+#======================================================================================================
+def trainRNN(train_data, aux_train_vars, train_labels):
 
     '''Train RNN algorithm'''
 
@@ -151,6 +206,7 @@ def trainRNN(train_data, train_labels):
 
     log.info('trainRNN - start')
     log.info('   train_data       len=%s, shape=%s, dtype=%s' %(len(train_data),       train_data      .shape, train_data      .dtype))
+    log.info('   aux_train_vars   len=%s, shape=%s, dtype=%s' %(len(aux_train_vars),   aux_train_vars  .shape, aux_train_vars  .dtype))
     log.info('   train_labels     len=%s, shape=%s, dtype=%s' %(len(train_labels),     train_labels    .shape, train_labels    .dtype))
     log.info('   train_labels_bin len=%s, shape=%s, dtype=%s' %(len(train_labels_bin), train_labels_bin.shape, train_labels_bin.dtype))
 
@@ -171,24 +227,38 @@ def trainRNN(train_data, train_labels):
 
     log.info('jet_inputs shape=%s' %jet_inputs.shape)
     
-    lstm = keras.layers.LSTM(10, return_sequences=False, name='LSTM')(masked_input)
+    lstm = keras.layers.Bidirectional(LSTM(10, return_sequences=False, name='LSTM'), merge_mode='concat', weights=None)(masked_input)
 
-    dpt = keras.layers.Dropout(rate=0.1)(lstm)
+    nAuxFeatures = aux_train_vars.shape[1]
+    
+    aux_inputs = keras.layers.Input(shape=(nAuxFeatures, ), name="aux_inputs")
 
-    FC = keras.layers.Dense(10, activation='relu', name="Dense")(dpt)
+    mlayer = keras.layers.concatenate([lstm, aux_inputs])
+
+    dpt = keras.layers.Dropout(rate=0.1)(mlayer)
+
+    FC = keras.layers.Dense(10, activation='tanh', name="Dense")(dpt)
+    # Hint:
+    #   try not to use relu just before the softmax layer
+    # FC = keras.layers.Dense(10, activation='relu', name="Dense")(dpt)
+    # 
 
     output = keras.layers.Dense(4, activation='softmax', name="jet_class")(FC)
 
     log.info('Will create model...')
 
-    model = keras.models.Model(inputs=jet_inputs, outputs=output)
+    model = keras.models.Model(inputs=[jet_inputs, aux_inputs], outputs=output)
 
     log.info('Will compile model...')
+    
+    # save the diagram of the model
+    keras.utils.plot_model(model, to_file=getOutName('model.png'), show_shapes=True)
 
     #-----------------------------------------------------------------------------------
     # Compile and fit model
     #
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['acc'])
+    model.compile(loss=mycrossentropy, optimizer='adam', metrics=['acc'])
+    #model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['acc'])
 
     model.summary()
 
@@ -196,10 +266,10 @@ def trainRNN(train_data, train_labels):
 
     log.info('Will fit model...')
 
-    fhist = model.fit(train_data,
+    fhist = model.fit([train_data, aux_train_vars],
                       train_labels_bin,
-                      epochs=10,
-                      batch_size=256,
+                      epochs=40,
+                      batch_size=1024,
                       callbacks=[csv_logger])
 
     log.info(str(fhist))
@@ -209,7 +279,6 @@ def trainRNN(train_data, train_labels):
     log.info('trainRNN - all done in %.1f seconds' %(time.time()-timeStart))
 
     return model
-
 
 #======================================================================================================        
 def trainMLP(train_data, train_labels, title):
@@ -331,7 +400,7 @@ def saveRNNPrediction(model, id_list, out_test_data, evtid_jetid_dict):
                 f.write('%s,%d\n'%(jet_id, label))
 
 #======================================================================================================        
-def saveRNNPrediction_fast(model, out_test_data, test_file):
+def saveRNNPrediction_fast(model, out_test_data, test_events):
 
     outkey = "first_RNN"
 
@@ -345,7 +414,7 @@ def saveRNNPrediction_fast(model, out_test_data, test_file):
     i = 0 
     sub = pd.DataFrame()
 
-    for evt_id, subset in test_file.groupby('event_id'):
+    for evt_id, subset in test_events:
         label = sub_process(pdata[i])
         i += 1
         
@@ -360,9 +429,7 @@ def saveRNNPrediction_fast(model, out_test_data, test_file):
 
 
 #======================================================================================================        
-def saveModel(model, train_data=[]):
-
-    outkey = "first_DNN"
+def saveModel(model, train_data=[], outkey="first_DNN"):
 
     if outkey == None:
         return
@@ -425,7 +492,9 @@ def main_trainRNN_fast():
     
     # Using groupby function will speed those code by factor ~2!
     #   -- Much faster than expect when run on large statistics: factor > 80 in full statistics
-    for evt_id, subset in train_file.groupby('event_id'):
+    train_events = train_file.groupby('event_id')
+
+    for evt_id, subset in train_events:
         out_train_label[i] = subset['label'].apply(sub_oneHotLabelFast).values[0]
 
         subset_data = subset[input_var_names].values
@@ -440,9 +509,13 @@ def main_trainRNN_fast():
             log.info('main_trainRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
             timePrev = time.time()
 
-    model = trainRNN(out_train_data, out_train_label)
+    pd_event_vars = getEventsVars(train_events)
 
-    saveModel(model, out_train_data)
+    model = trainRNN(out_train_data, pd_event_vars.values, out_train_label)
+
+    saveModel(model, out_train_data, "Di_RNN_event_vars" )
+    
+    #model = keras.models.load_model(options.weight)
 
     if options.testfile and  os.path.isfile(options.testfile):
         test_file = pd.read_csv(options.testfile)
@@ -455,8 +528,12 @@ def main_trainRNN_fast():
         out_test_data  = np.zeros((nevt, options.njet, len(input_var_names)))
 
         i = 0
+        timePrev = time.time()
+        
+        # Using groupby
+        test_events = test_file.groupby('event_id')
 
-        for evt_id, subset in test_file.groupby('event_id'):
+        for evt_id, subset in test_events:
             subset_data = subset[input_var_names].values
             njet        = subset_data.shape[0]
 
@@ -469,7 +546,9 @@ def main_trainRNN_fast():
                 log.info('main_testRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
                 timePrev = time.time()
 
-        saveRNNPrediction_fast(model, out_test_data, test_file)
+        test_event_vars = getEventsVars(test_events)
+
+        saveRNNPrediction_fast(model, [out_test_data, test_event_vars], test_events)
  
 
 #======================================================================================================        
@@ -569,7 +648,7 @@ def main_trainMLP():
   
     #===================================================================================================
     # IF NO PANDAS IMPORTED: 
-    #   You can get the csv input file
+    #   You can get the csv input file:
     #    
     #    train_file = np.genfromtxt(fname, dtype=float, delimiter=',', names=True)
     #
