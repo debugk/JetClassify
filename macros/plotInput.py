@@ -19,14 +19,18 @@ p = OptionParser()
 
 p.add_option('--outdir', '-o',   type='string',        default=None)
 p.add_option('--outname',        type='string',        default='new_train_jet.csv')
+p.add_option('--inputjet',       type='string',        default=None)
 
 p.add_option('--debug', '-d',    action='store_true',  default=False)
 p.add_option('--do-add',         action='store_true',  default=False)
 p.add_option('--do-event',       action='store_true',  default=False)
+p.add_option('--do-part',        action='store_true',  default=False)
 
 (options,args) = p.parse_args()
 
 matplotlib.use('Agg')
+
+jetid_lables_dict = {}
 
 import matplotlib.pyplot as plt # import pyplot AFTER setting batch backend
 
@@ -62,6 +66,42 @@ def getLog(name, level='INFO', debug=False, print_time=False):
 
 #======================================================================================================
 log = getLog(os.path.basename(__file__), print_time=False)
+
+#======================================================================================================
+class Vector:
+
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+        
+        self.l = (self.x**2 + self.y**2 + self.z**2)**0.5
+
+        self.theta = math.acos(self.x/self.l)
+        self.phi   = math.atan(self.z/self.y)
+
+        self.eta   = - math.log(math.tan(self.theta/2) )
+
+    def getDR(self, vect):
+        delta_eta = self.eta - vect.eta 
+        delta_phi = self.phi - vect.phi 
+        return (delta_phi**2 + delta_eta**2)**0.5
+
+    def getTheta(self, vect):
+        cos_theta = (self.x*vect.x + self.y*vect.y + self.z*vect.z)/self.l/vect.l
+
+        if not abs(cos_theta) <= 1:
+            print("getTheta - error - find cos_theta = %s"%cos_theta)
+
+            if cos_theta > 0:
+                return 0
+            else:
+                return math.pi
+
+        return math.acos(cos_theta)
+
+    def getTransversal(self):
+        return (self.z**2 + self.y**2)**0.5
 
 #======================================================================================================
 def saveFig(plt, name):
@@ -206,7 +246,9 @@ def plotInterestVars(fname):
     # 
     # Plot pT 
     # 
-    for var_name in ['jet_p3', 'jet_theta_x', 'jet_theta_y', 'jet_theta_z']:
+    ifile['jet_eta_x'] = ifile.apply(jet_eta_x,     axis = 1)  # axis = 1 mean process on column; = 0 is on row
+    for var_name in ['jet_eta_x']:
+    #for var_name in ['jet_p3', 'jet_theta_x', 'jet_theta_y', 'jet_theta_z']:
     #for var_name in ['jet_pt_x', 'jet_pt_y', 'jet_phi_x', 'jet_phi_y', 'jet_phi_z']:
     #for var_name in ['jet_pt', 'jet_sin_theta', 'jet_tan_phi']:
         plt.clf()
@@ -251,10 +293,14 @@ def plotEventVars(fname):
 #    pd_event_vars['event_pt_y'] = events.apply(event_pt_y)
 #    pd_event_vars['event_pt_z'] = events.apply(event_pt_z)
 
-    pd_event_vars['event_p3']      = events.apply(event_p3)
+#    pd_event_vars['event_p3']      = events.apply(event_p3)
 #    pd_event_vars['event_theta_x'] = events.apply(event_theta_x)
 #    pd_event_vars['event_theta_y'] = events.apply(event_theta_y)
 #    pd_event_vars['event_theta_z'] = events.apply(event_theta_z)
+
+    pd_event_vars['event_px'] = events.apply(event_px)
+    pd_event_vars['event_py'] = events.apply(event_py)
+    pd_event_vars['event_pz'] = events.apply(event_pz)
 
     pd_event_vars['label'] = events.apply(event_label)
     
@@ -280,7 +326,7 @@ def plotEventVars(fname):
     # 
     # Plot pT 
     # 
-    for var_name in ['event_p3']:
+    for var_name in ['event_px', 'event_py', 'event_pz']:
     #for var_name in ['event_theta_x', 'event_theta_y', 'event_theta_z']:
     #for var_name in ['event_pt_x', 'event_pt_y', 'event_pt_z']:
     #for var_name in ['event_mass', 'event_njet']:
@@ -429,6 +475,14 @@ def jet_phi_x(df):
     return math.atan(pz/py)
 
 #======================================================================================================
+def jet_eta_x(df):
+    px = df['jet_px']
+    p3 = df['jet_p3']
+    theta = math.acos(px/p3)
+
+    return - math.log(math.tan(theta/2) )
+
+#======================================================================================================
 # Event variable processing
 #======================================================================================================
 def event_mass(df):
@@ -436,7 +490,13 @@ def event_mass(df):
     px = df['jet_px'].sum()
     py = df['jet_py'].sum()
     pz = df['jet_pz'].sum()
-    return (e**2 - (px**2+py**2+pz**2))
+
+    mass2 = (e**2 - (px**2+py**2+pz**2))
+
+    if mass2 > 0:
+        return mass2**0.5
+    else:
+        return -(-mass2)**0.5
 
 #======================================================================================================
 def event_label(df):
@@ -446,6 +506,21 @@ def event_label(df):
 #======================================================================================================
 def event_njet(df):
     return len(df['label'])
+
+#======================================================================================================
+def event_px(df):
+    px = df['jet_px'].sum()
+    return px
+
+#======================================================================================================
+def event_py(df):
+    py = df['jet_py'].sum()
+    return py
+
+#======================================================================================================
+def event_pz(df):
+    pz = df['jet_pz'].sum()
+    return pz
 
 #======================================================================================================
 def event_pt_x(df):
@@ -477,7 +552,9 @@ def event_theta_x(df):
     px = df['jet_px'].sum()
     p3 = event_p3(df)
     #p3 = df['event_p3']
-    
+    if p3 < 1e-15:
+        return 0    
+
     return math.acos(px/p3)
 
 #======================================================================================================
@@ -485,7 +562,9 @@ def event_theta_y(df):
     py = df['jet_py'].sum()
     p3 = event_p3(df)
     #p3 = df['event_p3']
-    
+    if p3 < 1e-15:
+        return 0
+
     return math.acos(py/p3)
 
 #======================================================================================================
@@ -493,8 +572,106 @@ def event_theta_z(df):
     pz = df['jet_pz'].sum()
     p3 = event_p3(df)
     #p3 = df['event_p3']
+    if p3 < 1e-15:
+        return 0
     
     return math.acos(pz/p3)
+
+#======================================================================================================
+# Particle variable processing     
+#======================================================================================================
+def part_jet_e(df):
+    e = df['particle_energy'].sum()
+    return e
+
+#======================================================================================================
+def part_jet_cone_frac_dr(df):
+    jet_px = df['particle_px'].sum()
+    jet_py = df['particle_py'].sum()
+    jet_pz = df['particle_pz'].sum()
+
+    jet_vector = Vector(jet_px, jet_py, jet_pz)
+    
+    jet_e  = df['particle_energy'].sum() 
+    jet_pt = jet_vector.getTransversal()
+
+    e_dr01 = 0
+    e_dr02 = 0
+    e_dr03 = 0
+    e_dr04 = 0
+
+    pt_dr01 = 0
+    pt_dr02 = 0
+    pt_dr03 = 0
+    pt_dr04 = 0
+
+    for i in range(len(df)):
+        part_vector = Vector(df.iloc[i]['particle_px'], df.iloc[i]['particle_py'], df.iloc[i]['particle_pz'])
+        dr = part_vector.getDR(jet_vector)
+
+        if dr < 1:
+            e_dr01  += df.iloc[i]['particle_energy']
+            pt_dr01 += part_vector.getTransversal()
+    
+        if dr < 2:
+            e_dr02  += df.iloc[i]['particle_energy']
+            pt_dr02 += part_vector.getTransversal()
+    
+        if dr < 3:
+            e_dr03  += df.iloc[i]['particle_energy']
+            pt_dr03 += part_vector.getTransversal()
+    
+        if dr < 4:
+            e_dr04  += df.iloc[i]['particle_energy']
+            pt_dr04 += part_vector.getTransversal()
+
+    return (e_dr01/jet_e,   e_dr02/jet_e,   e_dr03/jet_e,   e_dr04/jet_e,
+            pt_dr01/jet_pt, pt_dr02/jet_pt, pt_dr03/jet_pt, pt_dr04/jet_pt)
+
+#======================================================================================================
+def part_jet_cone_frac_theta(df):
+    jet_px = df['particle_px'].sum()
+    jet_py = df['particle_py'].sum()
+    jet_pz = df['particle_pz'].sum()
+
+    jet_vector = Vector(jet_px, jet_py, jet_pz)
+    
+    jet_e  = df['particle_energy'].sum() 
+    jet_pt = jet_vector.getTransversal()
+
+    e_theta01 = 0
+    e_theta02 = 0
+    e_theta03 = 0
+    e_theta04 = 0
+
+    pt_theta01 = 0
+    pt_theta02 = 0
+    pt_theta03 = 0
+    pt_theta04 = 0
+
+    for i in range(len(df)):
+        part_vector = Vector(df.iloc[i]['particle_px'], df.iloc[i]['particle_py'], df.iloc[i]['particle_pz'])
+        theta = part_vector.getTheta(jet_vector)
+
+        if theta < 0.1:
+            e_theta01  += df.iloc[i]['particle_energy']
+            pt_theta01 += part_vector.getTransversal()
+    
+        if theta < 0.2:
+            e_theta02  += df.iloc[i]['particle_energy']
+            pt_theta02 += part_vector.getTransversal()
+    
+        if theta < 0.3:
+            e_theta03  += df.iloc[i]['particle_energy']
+            pt_theta03 += part_vector.getTransversal()
+    
+        if theta < 0.4:
+            e_theta04  += df.iloc[i]['particle_energy']
+            pt_theta04 += part_vector.getTransversal()
+
+    return (e_theta01/jet_e,   e_theta02/jet_e,   e_theta03/jet_e,   e_theta04/jet_e, 
+            pt_theta01/jet_pt, pt_theta02/jet_pt, pt_theta03/jet_pt, pt_theta04/jet_pt)
+
 
 #======================================================================================================
 def AddNewVarsToFile(fname):
@@ -507,7 +684,7 @@ def AddNewVarsToFile(fname):
     ifile  = pd.read_csv(fname)
 
    # ifile['jet_pt_y'] = ifile.apply(jet_pt_y,     axis = 1)  # axis = 1 mean process on column; = 0 is on row
-    ifile['jet_pt_x'] = ifile.apply(jet_pt_x,     axis = 1)  # axis = 1 mean process on column; = 0 is on row
+    ifile['jet_pt_x'] = ifile.apply(jet_pt_x,     axis = 1)  
 
    # ifile['jet_phi_x'] = ifile.apply(jet_phi_x,    axis = 1)  
    # ifile['jet_phi_y'] = ifile.apply(jet_phi_y,    axis = 1)  
@@ -525,6 +702,106 @@ def AddNewVarsToFile(fname):
     # Save the new DataFrame
     out_name = getOutName(options.outname)
     ifile.to_csv(out_name, index=False)
+
+#======================================================================================================
+# Particle variable processing
+#======================================================================================================
+def plotJetWithParticleVars(fname):
+    ''' Plot particle variables '''
+
+    ifile  = pd.read_csv(fname)
+    jets   = ifile.groupby('jet_id')
+
+    pd_jets_vars = pd.DataFrame()
+
+    pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
+
+    (pd_jets_vars['part_jet_e_frac_dr01'], 
+     pd_jets_vars['part_jet_e_frac_dr02'],
+     pd_jets_vars['part_jet_e_frac_dr03'],
+     pd_jets_vars['part_jet_e_frac_dr04'],
+     pd_jets_vars['part_jet_pt_frac_dr01'], 
+     pd_jets_vars['part_jet_pt_frac_dr02'],
+     pd_jets_vars['part_jet_pt_frac_dr03'],
+     pd_jets_vars['part_jet_pt_frac_dr04']
+     ) = zip(*jets.apply(part_jet_cone_frac_dr))
+
+    (pd_jets_vars['part_jet_e_frac_theta01'], 
+     pd_jets_vars['part_jet_e_frac_theta02'],
+     pd_jets_vars['part_jet_e_frac_theta03'],
+     pd_jets_vars['part_jet_e_frac_theta04'],
+     pd_jets_vars['part_jet_pt_frac_theta01'], 
+     pd_jets_vars['part_jet_pt_frac_theta02'],
+     pd_jets_vars['part_jet_pt_frac_theta03'],
+     pd_jets_vars['part_jet_pt_frac_theta04']
+     ) = zip(*jets.apply(part_jet_cone_frac_theta))
+
+    if not options.inputjet:
+        return 
+
+    jet_file = pd.read_csv(options.inputjet)
+    
+    merge_result = pd.merge(pd_jets_vars, jet_file, on=['jet_id'], how='inner')
+
+    merge_result['diff_e'] = merge_result.apply(lambda x: x['jet_energy'] - x['part_jet_e'], axis = 1)
+    #==================================================================
+    # MERGE is useful, otherwise you can do as below, very ... ugly:
+    #    - if options.inputjet:
+    #    -     jet_file = pd.read_csv(options.inputjet)
+    #    - 
+    #    -     global jetid_lables_dict 
+    #    -     jetid_lables_dict = dict(jet_file[['jet_id', 'label']].values) 
+    #    - 
+    #    - pd_jets_vars['label'] = pd_jets_vars['jet_id'].apply(lambda x: jetid_lables_dict[x])
+    #==================================================================
+
+    #
+    # get 4 class indexes refs
+    #
+    class_d = merge_result['label'] == 1
+    class_c = merge_result['label'] == 4
+    class_b = merge_result['label'] == 5
+    class_g = merge_result['label'] == 21
+    
+    class_dict = {1:class_d,
+                  4:class_c,
+                  5:class_b,
+                  21:class_g
+                  }
+    # 
+    # Plot 
+    #
+    plots  = ['part_jet_pt_frac_dr01', 'part_jet_pt_frac_dr02', 'part_jet_pt_frac_dr03', 'part_jet_pt_frac_dr04']
+    plots += ['part_jet_pt_frac_theta01', 'part_jet_pt_frac_theta02', 'part_jet_pt_frac_theta03', 'part_jet_pt_frac_theta04']
+    plots += ['part_jet_e_frac_dr01', 'part_jet_e_frac_dr02', 'part_jet_e_frac_dr03', 'part_jet_e_frac_dr04']
+    plots += ['part_jet_e_frac_theta01', 'part_jet_e_frac_theta02', 'part_jet_e_frac_theta03', 'part_jet_e_frac_theta04']
+
+    for var_name in plots:
+        plt.clf()
+        
+        var_class_4 = []
+
+        for label in [1, 4, 5, 21]:
+            var_class_4 += [merge_result[class_dict[label] ][var_name] ]
+
+        var_max, var_min = getDataFrameRange(var_class_4)
+
+        for label in [1, 4, 5, 21]: 
+            class_name  = getClassName(label) 
+            class_color = getClassColor(class_name) 
+            select_data = merge_result[class_dict[label] ][var_name]
+            
+            phd = plt.hist(select_data.values, range=(var_min, var_max), bins=100, histtype='step', color=class_color, label=class_name, density=True)
+ 
+        plt.autoscale(enable=True, axis='y', tight=None)
+        plt.legend(loc='upper right')
+        plt.xlabel(var_name)
+        plt.ylabel('Density')
+        plt.grid(True)
+        saveFig(plt, '%s.pdf' %(var_name))
+
+    return
+    
 
 #======================================================================================================
 def main():
@@ -547,9 +824,12 @@ def main():
     elif options.do_event:
         plotEventVars(fname)
 
+    elif options.do_part:
+        plotJetWithParticleVars(fname)
+
     else:
-        checkSameEventID(fname)
-        #plotInterestVars(fname)
+        #checkSameEventID(fname)
+        plotInterestVars(fname)
 
 #======================================================================================================
 if __name__ == '__main__':
