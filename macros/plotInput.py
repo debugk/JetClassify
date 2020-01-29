@@ -629,6 +629,47 @@ def part_jet_cone_frac_dr(df):
             pt_dr01/jet_pt, pt_dr02/jet_pt, pt_dr03/jet_pt, pt_dr04/jet_pt)
 
 #======================================================================================================
+def part_jet_n11(df):
+    p_11 = (df['particle_category_abs'] == 11).sum()
+
+    return p_11
+
+#======================================================================================================
+def part_jet_n13(df):
+    p_13 = (df['particle_category_abs'] == 13).sum()
+
+    return p_13
+
+#======================================================================================================
+def part_jet_mass_11(df):
+    is_same_id = df['particle_category_abs'] == 11
+
+    if len(is_same_id) == 0:
+        return -10
+
+    e  = df[is_same_id]['particle_energy'].sum()
+    px = df[is_same_id]['particle_px'].sum()
+    py = df[is_same_id]['particle_py'].sum()
+    pz = df[is_same_id]['particle_pz'].sum()
+    
+    return abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+#======================================================================================================
+def part_jet_mass_13(df):
+    is_same_id = df['particle_category_abs'] == 13
+
+    if len(is_same_id) == 0:
+        return -10
+
+    e  = df[is_same_id]['particle_energy'].sum()
+    px = df[is_same_id]['particle_px'].sum()
+    py = df[is_same_id]['particle_py'].sum()
+    pz = df[is_same_id]['particle_pz'].sum()
+    
+    return abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+
+#======================================================================================================
 def part_jet_cone_frac_theta(df):
     jet_px = df['particle_px'].sum()
     jet_py = df['particle_py'].sum()
@@ -710,31 +751,37 @@ def plotJetWithParticleVars(fname):
     ''' Plot particle variables '''
 
     ifile  = pd.read_csv(fname)
+    ifile['particle_category_abs'] = ifile['particle_category'].apply(abs)
+
     jets   = ifile.groupby('jet_id')
 
     pd_jets_vars = pd.DataFrame()
 
-    pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
+    #pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
+    pd_jets_vars['part_jet_n11'] = jets.apply(part_jet_n11)
+    pd_jets_vars['part_jet_n13'] = jets.apply(part_jet_n13)
+    pd_jets_vars['part_jet_mass_11'] = jets.apply(part_jet_mass_11)
+    pd_jets_vars['part_jet_mass_13'] = jets.apply(part_jet_mass_13)
 
-    (pd_jets_vars['part_jet_e_frac_dr01'], 
-     pd_jets_vars['part_jet_e_frac_dr02'],
-     pd_jets_vars['part_jet_e_frac_dr03'],
-     pd_jets_vars['part_jet_e_frac_dr04'],
-     pd_jets_vars['part_jet_pt_frac_dr01'], 
-     pd_jets_vars['part_jet_pt_frac_dr02'],
-     pd_jets_vars['part_jet_pt_frac_dr03'],
-     pd_jets_vars['part_jet_pt_frac_dr04']
-     ) = zip(*jets.apply(part_jet_cone_frac_dr))
+    #(pd_jets_vars['part_jet_e_frac_dr01'], 
+    # pd_jets_vars['part_jet_e_frac_dr02'],
+    # pd_jets_vars['part_jet_e_frac_dr03'],
+    # pd_jets_vars['part_jet_e_frac_dr04'],
+    # pd_jets_vars['part_jet_pt_frac_dr01'], 
+    # pd_jets_vars['part_jet_pt_frac_dr02'],
+    # pd_jets_vars['part_jet_pt_frac_dr03'],
+    # pd_jets_vars['part_jet_pt_frac_dr04']
+    # ) = zip(*jets.apply(part_jet_cone_frac_dr))
 
-    (pd_jets_vars['part_jet_e_frac_theta01'], 
-     pd_jets_vars['part_jet_e_frac_theta02'],
-     pd_jets_vars['part_jet_e_frac_theta03'],
-     pd_jets_vars['part_jet_e_frac_theta04'],
-     pd_jets_vars['part_jet_pt_frac_theta01'], 
-     pd_jets_vars['part_jet_pt_frac_theta02'],
-     pd_jets_vars['part_jet_pt_frac_theta03'],
-     pd_jets_vars['part_jet_pt_frac_theta04']
-     ) = zip(*jets.apply(part_jet_cone_frac_theta))
+    #(pd_jets_vars['part_jet_e_frac_theta01'], 
+    # pd_jets_vars['part_jet_e_frac_theta02'],
+    # pd_jets_vars['part_jet_e_frac_theta03'],
+    # pd_jets_vars['part_jet_e_frac_theta04'],
+    # pd_jets_vars['part_jet_pt_frac_theta01'], 
+    # pd_jets_vars['part_jet_pt_frac_theta02'],
+    # pd_jets_vars['part_jet_pt_frac_theta03'],
+    # pd_jets_vars['part_jet_pt_frac_theta04']
+    # ) = zip(*jets.apply(part_jet_cone_frac_theta))
 
     if not options.inputjet:
         return 
@@ -743,7 +790,7 @@ def plotJetWithParticleVars(fname):
     
     merge_result = pd.merge(pd_jets_vars, jet_file, on=['jet_id'], how='inner')
 
-    merge_result['diff_e'] = merge_result.apply(lambda x: x['jet_energy'] - x['part_jet_e'], axis = 1)
+    #merge_result['diff_e'] = merge_result.apply(lambda x: x['jet_energy'] - x['part_jet_e'], axis = 1)
     #==================================================================
     # MERGE is useful, otherwise you can do as below, very ... ugly:
     #    - if options.inputjet:
@@ -771,10 +818,12 @@ def plotJetWithParticleVars(fname):
     # 
     # Plot 
     #
-    plots  = ['part_jet_pt_frac_dr01', 'part_jet_pt_frac_dr02', 'part_jet_pt_frac_dr03', 'part_jet_pt_frac_dr04']
-    plots += ['part_jet_pt_frac_theta01', 'part_jet_pt_frac_theta02', 'part_jet_pt_frac_theta03', 'part_jet_pt_frac_theta04']
-    plots += ['part_jet_e_frac_dr01', 'part_jet_e_frac_dr02', 'part_jet_e_frac_dr03', 'part_jet_e_frac_dr04']
-    plots += ['part_jet_e_frac_theta01', 'part_jet_e_frac_theta02', 'part_jet_e_frac_theta03', 'part_jet_e_frac_theta04']
+   # plots  = ['part_jet_pt_frac_dr01', 'part_jet_pt_frac_dr02', 'part_jet_pt_frac_dr03', 'part_jet_pt_frac_dr04']
+   # plots += ['part_jet_pt_frac_theta01', 'part_jet_pt_frac_theta02', 'part_jet_pt_frac_theta03', 'part_jet_pt_frac_theta04']
+   # plots += ['part_jet_e_frac_dr01', 'part_jet_e_frac_dr02', 'part_jet_e_frac_dr03', 'part_jet_e_frac_dr04']
+   # plots += ['part_jet_e_frac_theta01', 'part_jet_e_frac_theta02', 'part_jet_e_frac_theta03', 'part_jet_e_frac_theta04']
+
+    plots = ['part_jet_n11', 'part_jet_n13', 'part_jet_mass_13', 'part_jet_mass_11']
 
     for var_name in plots:
         plt.clf()
@@ -799,6 +848,13 @@ def plotJetWithParticleVars(fname):
         plt.ylabel('Density')
         plt.grid(True)
         saveFig(plt, '%s.pdf' %(var_name))
+
+        plt.yscale('log')
+        saveFig(plt, '%s_logy.pdf' %(var_name))
+
+
+    out_name = getOutName(options.outname)
+    merge_result.to_csv(out_name, index=False)
 
     return
     
