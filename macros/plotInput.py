@@ -641,6 +641,34 @@ def part_jet_n13(df):
     return p_13
 
 #======================================================================================================
+def part_jet_n321(df):
+    p_321 = (df['particle_category_abs'] == 321).sum()
+
+    return p_321
+
+#======================================================================================================
+def part_jet_n130(df):
+    p_130 = (df['particle_category_abs'] == 130).sum()
+
+    return p_130
+
+#======================================================================================================
+def part_jet_n211(df):
+    p_211 = (df['particle_category_abs'] == 211).sum()
+
+    return p_211
+
+#======================================================================================================
+def part_jet_n321_and_n211(df):
+    is_321_id = (df['particle_category_abs'] == 321).sum()
+    is_211_id = (df['particle_category_abs'] == 211).sum()
+
+    if is_321_id > 0 and is_211_id > 0:
+        return is_321_id + is_211_id
+    else:
+        return -(is_321_id + is_211_id)
+
+#======================================================================================================
 def part_jet_mass_11(df):
     is_same_id = df['particle_category_abs'] == 11
 
@@ -667,6 +695,188 @@ def part_jet_mass_13(df):
     pz = df[is_same_id]['particle_pz'].sum()
     
     return abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+#======================================================================================================
+def part_jet_D_mass(df):
+    is_321_id = df['particle_category_abs'] == 321
+    is_211_id = df['particle_category_abs'] == 211
+
+    if len(is_321_id) == 0:
+        return -10
+
+    e  = df[is_321_id | is_211_id]['particle_energy'].sum()
+    px = df[is_321_id | is_211_id]['particle_px'].sum()
+    py = df[is_321_id | is_211_id]['particle_py'].sum()
+    pz = df[is_321_id | is_211_id]['particle_pz'].sum()
+    
+    mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+    return mass
+
+#======================================================================================================
+def part_jet_D_mass_v2(df):
+    is_321_id = df['particle_category'] == 321
+    is_211_id = df['particle_category'] == -211
+
+    kaon_df = df[is_321_id]
+    pion_df = df[is_211_id]
+
+    for index_k in range(len(kaon_df)):
+        kaon = kaon_df.iloc[index_k]
+
+        for index_pi in range(len(pion_df)):
+            pion = pion_df.iloc[index_pi]
+            
+            e  = kaon['particle_energy'] + pion['particle_energy']
+            px = kaon['particle_px'] + pion['particle_px'] 
+            py = kaon['particle_py'] + pion['particle_py']
+            pz = kaon['particle_pz'] + pion['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 2.1 and mass > 1.7:
+                return mass
+
+    return 0 
+
+#======================================================================================================
+def part_jet_D_mass_v3(df):
+    is_321_id = df['particle_category'] == -321
+    is_211_id = df['particle_category'] == 211
+
+    kaon_df = df[is_321_id]
+    pion_df = df[is_211_id]
+
+    for index_k in range(len(kaon_df)):
+        kaon = kaon_df.iloc[index_k]
+
+        for index_pi in range(len(pion_df)):
+            pion = pion_df.iloc[index_pi]
+            
+            e  = kaon['particle_energy'] + pion['particle_energy']
+            px = kaon['particle_px'] + pion['particle_px'] 
+            py = kaon['particle_py'] + pion['particle_py']
+            pz = kaon['particle_pz'] + pion['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 2.1 and mass > 1.7:
+                return mass
+
+    return 0 
+
+#======================================================================================================
+def part_jet_count_D_mass_p(df):
+    is_321_id = df['particle_category'] == -321
+    is_211_id = df['particle_category'] == 211
+
+    kaon_df = df[is_321_id]
+    pion_df = df[is_211_id]
+
+    count = 0
+
+    for index_k in range(len(kaon_df)):
+        kaon = kaon_df.iloc[index_k]
+
+        for index_pi in range(len(pion_df)):
+            pion = pion_df.iloc[index_pi]
+            
+            e  = kaon['particle_energy'] + pion['particle_energy']
+            px = kaon['particle_px'] + pion['particle_px'] 
+            py = kaon['particle_py'] + pion['particle_py']
+            pz = kaon['particle_pz'] + pion['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 1.87 and mass > 1.86:
+                count += 1
+
+    return count
+
+#======================================================================================================
+def part_jet_count_D_mass_n(df):
+    is_321_id = df['particle_category'] == 321
+    is_211_id = df['particle_category'] == -211
+
+    kaon_df = df[is_321_id]
+    pion_df = df[is_211_id]
+
+    count = 0
+
+    for index_k in range(len(kaon_df)):
+        kaon = kaon_df.iloc[index_k]
+
+        for index_pi in range(len(pion_df)):
+            pion = pion_df.iloc[index_pi]
+            
+            e  = kaon['particle_energy'] + pion['particle_energy']
+            px = kaon['particle_px'] + pion['particle_px'] 
+            py = kaon['particle_py'] + pion['particle_py']
+            pz = kaon['particle_pz'] + pion['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 1.87 and mass > 1.86:
+                count += 1
+
+    return count
+
+
+#======================================================================================================
+def part_jet_count_j_mass_e(df):
+    p_e = df['particle_category'] == 11
+    n_e = df['particle_category'] == -11
+
+    pe_df = df[p_e]
+    ne_df = df[n_e]
+
+    count = 0
+
+    for index_pe in range(len(pe_df)):
+        pe = pe_df.iloc[index_pe]
+
+        for index_ne in range(len(ne_df)):
+            ne = ne_df.iloc[index_ne]
+            
+            e  = pe['particle_energy'] + ne['particle_energy']
+            px = pe['particle_px'] + ne['particle_px'] 
+            py = pe['particle_py'] + ne['particle_py']
+            pz = pe['particle_pz'] + ne['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 3.099 and mass > 3.095:
+                count += 1
+
+    return count
+
+#======================================================================================================
+def part_jet_count_j_mass_m(df):
+    p_m = df['particle_category'] == 13
+    n_m = df['particle_category'] == -13
+
+    pm_df = df[p_m]
+    nm_df = df[n_m]
+
+    count = 0
+
+    for index_pm in range(len(pm_df)):
+        pm = pm_df.iloc[index_pm]
+
+        for index_nm in range(len(nm_df)):
+            nm = nm_df.iloc[index_nm]
+            
+            e  = pm['particle_energy'] + nm['particle_energy']
+            px = pm['particle_px'] + nm['particle_px'] 
+            py = pm['particle_py'] + nm['particle_py']
+            pz = pm['particle_pz'] + nm['particle_pz'] 
+    
+            mass = abs(e**2 - px**2 - py**2 -pz**2)**0.5
+
+            if mass < 3.099 and mass > 3.095:
+                count += 1
+
+    return count
 
 
 #======================================================================================================
@@ -758,10 +968,19 @@ def plotJetWithParticleVars(fname):
     pd_jets_vars = pd.DataFrame()
 
     #pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
-    pd_jets_vars['part_jet_n11'] = jets.apply(part_jet_n11)
-    pd_jets_vars['part_jet_n13'] = jets.apply(part_jet_n13)
-    pd_jets_vars['part_jet_mass_11'] = jets.apply(part_jet_mass_11)
-    pd_jets_vars['part_jet_mass_13'] = jets.apply(part_jet_mass_13)
+    #pd_jets_vars['part_jet_n11'] = jets.apply(part_jet_n11)
+    #pd_jets_vars['part_jet_n13'] = jets.apply(part_jet_n13)
+#    pd_jets_vars['part_jet_n321'] = jets.apply(part_jet_n321)
+#    pd_jets_vars['part_jet_n130'] = jets.apply(part_jet_n130)
+#    pd_jets_vars['part_jet_n211'] = jets.apply(part_jet_n211)
+#    pd_jets_vars['part_jet_D_mass'] = jets.apply(part_jet_D_mass)
+#    pd_jets_vars['part_jet_n321_and_n211'] = jets.apply(part_jet_n321_and_n211)
+#    pd_jets_vars['part_jet_mass_11'] = jets.apply(part_jet_mass_11)
+#    pd_jets_vars['part_jet_mass_13'] = jets.apply(part_jet_mass_13)
+    pd_jets_vars['part_jet_count_D_mass_p'] = jets.apply(part_jet_count_D_mass_p)
+    pd_jets_vars['part_jet_count_D_mass_n'] = jets.apply(part_jet_count_D_mass_n)
+    pd_jets_vars['part_jet_count_j_mass_e'] = jets.apply(part_jet_count_j_mass_e)
+    pd_jets_vars['part_jet_count_j_mass_m'] = jets.apply(part_jet_count_j_mass_m)
 
     #(pd_jets_vars['part_jet_e_frac_dr01'], 
     # pd_jets_vars['part_jet_e_frac_dr02'],
@@ -823,7 +1042,9 @@ def plotJetWithParticleVars(fname):
    # plots += ['part_jet_e_frac_dr01', 'part_jet_e_frac_dr02', 'part_jet_e_frac_dr03', 'part_jet_e_frac_dr04']
    # plots += ['part_jet_e_frac_theta01', 'part_jet_e_frac_theta02', 'part_jet_e_frac_theta03', 'part_jet_e_frac_theta04']
 
-    plots = ['part_jet_n11', 'part_jet_n13', 'part_jet_mass_13', 'part_jet_mass_11']
+    plots = ['part_jet_count_D_mass_p', 'part_jet_count_D_mass_n', 'part_jet_count_j_mass_e', 'part_jet_count_j_mass_m']
+    #plots = ['part_jet_n321', 'part_jet_n130', 'part_jet_n211', 'part_jet_D_mass', 'part_jet_n321_and_n211']
+    #plots = ['part_jet_n11', 'part_jet_n13', 'part_jet_mass_13', 'part_jet_mass_11']
 
     for var_name in plots:
         plt.clf()
