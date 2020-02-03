@@ -25,10 +25,11 @@ p = OptionParser()
 
 p.add_option('-o', '--outdir',   type='string',                      default='models/')
 p.add_option('-t', '--testfile', type='string',                      default=None)
+p.add_option('-w', '--weight',   type='string',                      default=None)
 p.add_option('--njet',           type='int',                         default=10)
 p.add_option('-n', '--nevent',   type='int',                         default=None)
 p.add_option('-d', '--debug',    action='store_true',  dest='debug', default=False)
-p.add_option('-w', '--weight',   type='string',                      default=None)
+p.add_option('--plot-model',     action='store_true',  default=False)
 
 
 (options,args) = p.parse_args()
@@ -261,6 +262,12 @@ def trainRNN(train_data, aux_train_vars, train_labels):
     #model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['acc'])
 
     model.summary()
+   
+    #-----------------------------------------------------------------------------------
+    # save the diagram of the model structure for testing if need
+    #   
+    if options.plot_model: 
+        keras.utils.plot_model(model, to_file='model.png', show_shapes=True)
 
     csv_logger = keras.callbacks.CSVLogger(getOutName('train_RNN_loss.csv'))
 
@@ -530,7 +537,7 @@ def main_trainRNN_fast():
         i = 0
         timePrev = time.time()
         
-        # Using groupby
+        # Use groupby
         test_events = test_file.groupby('event_id')
 
         for evt_id, subset in test_events:
