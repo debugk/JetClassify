@@ -324,10 +324,10 @@ def main_trainRNN():
     if len(jet_file) != nevt:
         print("INFO - number of jets in jet file = %d, number of jet in particle file = %d"%(len(jet_file), nevt))
         jet_file = jet_file.head(nevt)
-    
-    out_train_label = jet_file['label'].apply(sub_oneHotLabelFast)
 
     for evt_id, subset in train_jets:
+        subset = subset.sort_values(by='particle_category')
+
         subset_data = subset[input_var_names].values
         nparticle   = subset_data.shape[0]
 
@@ -346,6 +346,8 @@ def main_trainRNN():
         # load the given RNN model
         model = load_model(options.model)
     else:
+        out_train_label = jet_file['label'].apply(sub_oneHotLabelFast)
+        
         model = trainRNN(out_train_data, pd_jet_vars, out_train_label)
 
         saveModel(model, "Di_RNN_event_vars" )
