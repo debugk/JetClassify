@@ -101,6 +101,22 @@ def sub_process(x):
     return x
 
 #======================================================================================================
+def get_theta(arrays, axis='x'):
+
+    if axis == 'x':
+        axis = np.array([[1], [0], [0]])
+    elif axis == 'y':
+        axis = np.array([[0], [1], [0]])
+    elif axis == 'z':
+        axis = np.array([[0], [0], [1]])
+    else:
+        log.error('get_theta - unknow axis = %s'%axis)
+        
+    a = (arrays @ axis).ravel()
+    b = np.sqrt((arrays*arrays).sum(1))
+    return np.arccos(a / b)  
+
+#======================================================================================================
 def getOutName(name):
     
     if not options.outdir:
@@ -284,19 +300,35 @@ def main_trainRNN():
         log.warning('Input file does not exist: %s' %fname)
         return    
     
+    if not options.inputjet:
+        return
+    
+
     train_file = pd.read_csv(fname)
+    jet_file   = pd.read_csv(options.inputjet).sort_values(by='jet_id')
 
     #
     # 1. Prepare training data for RNN 
     #
     train_file['particle_charge'] = train_file['particle_category'].apply(particle_charge)
 
+    # get theta and phi
+    part_vect = train_file[['particle_px', 'particle_py', 'particle_pz']].values
+    train_file['particle_theta_x'] = get_theta(part_vect, axis='x')
+    train_file['particle_phi_x']   = np.arctan(train_file['particle_pz'] / train_file['particle_py'])
+
+    jet_vect = jet_file[['jet_px', 'jet_py', 'jet_pz']].values
+    jet_file['jet_theta_x'] = get_theta(jet_vect, axis='x')
+    jet_file['jet_phi_x']   = np.arctan(jet_file['jet_pz'] / jet_file['jet_py'])
+
     #
     # 2. Select input variables
     #
-    input_var_names = ['particle_category', 'particle_px', 'particle_py', 'particle_pz', 'particle_energy', 'particle_mass', 'particle_charge']
+    input_var_names = ['particle_category', 'particle_px', 'particle_py', 'particle_pz', 'particle_energy', 'particle_mass', 
+                       'particle_charge', 'particle_theta_x', 'particle_phi_x']
 
-    input_jetvar_names = ['number_of_particles_in_this_jet', 'jet_px', 'jet_py', 'jet_pz', 'jet_energy', 'jet_mass']
+    input_jetvar_names = ['number_of_particles_in_this_jet', 'jet_px', 'jet_py', 'jet_pz', 'jet_energy', 'jet_mass',
+                          'jet_theta_x', 'jet_phi_x']
 
     #
     # 3. Prepare numpy array inputs to the keras
@@ -312,14 +344,7 @@ def main_trainRNN():
     i = 0
     timePrev = time.time()
     
-    # Using groupby function will speed those code by factor ~2!
-    #   -- Much faster than expect when run on large statistics: factor > 80 in full statistics
     train_jets = train_file.groupby('jet_id', sort=True)
-
-    if not options.inputjet:
-        return
-    
-    jet_file = pd.read_csv(options.inputjet).sort_values(by='jet_id')
 
     if len(jet_file) != nevt:
         print("INFO - number of jets in jet file = %d, number of jet in particle file = %d"%(len(jet_file), nevt))
