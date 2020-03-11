@@ -26,11 +26,11 @@ p = OptionParser()
 p.add_option('-o', '--outdir',   type='string',                      default='models/')
 p.add_option('-t', '--testfile', type='string',                      default=None)
 p.add_option('-w', '--weight',   type='string',                      default=None)
+p.add_option('--merge-name',     type='string',                      default=None)
 p.add_option('--njet',           type='int',                         default=10)
 p.add_option('-n', '--nevent',   type='int',                         default=None)
 p.add_option('-d', '--debug',    action='store_true',  dest='debug', default=False)
 p.add_option('--plot-model',     action='store_true',  default=False)
-
 
 (options,args) = p.parse_args()
 
@@ -190,9 +190,10 @@ def event_theta_x(df):
 def getEventsVars(grouped_evt):
     pd_event_vars = pd.DataFrame()
     pd_event_vars['event_p3']      = grouped_evt.apply(event_p3)
-    #pd_event_vars['event_mass']    = grouped_evt.apply(event_mass)
+    pd_event_vars['event_mass']    = grouped_evt.apply(event_mass)
     pd_event_vars['event_njet']    = grouped_evt.apply(event_njet)
     pd_event_vars['event_theta_x'] = grouped_evt.apply(event_theta_x)
+    #pd_event_vars['event_id']      = grouped_evt['event_id']
    
     return pd_event_vars 
 #======================================================================================================
@@ -235,8 +236,11 @@ def trainRNN(train_data, aux_train_vars, train_labels):
     aux_inputs = keras.layers.Input(shape=(nAuxFeatures, ), name="aux_inputs")
 
     mlayer = keras.layers.concatenate([lstm, aux_inputs])
+    
+    da = keras.layers.Dense(50, activation='tanh', name="DenseA")(mlayer)
+    db = keras.layers.Dense(30, activation='tanh', name="DenseB")(da)
 
-    dpt = keras.layers.Dropout(rate=0.1)(mlayer)
+    dpt = keras.layers.Dropout(rate=0.1)(db)
 
     FC = keras.layers.Dense(10, activation='tanh', name="Dense")(dpt)
     # Hint:
@@ -258,8 +262,8 @@ def trainRNN(train_data, aux_train_vars, train_labels):
     #-----------------------------------------------------------------------------------
     # Compile and fit model
     #
-    model.compile(loss=mycrossentropy, optimizer='adam', metrics=['acc'])
-    #model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['acc'])
+    #model.compile(loss=mycrossentropy, optimizer='adam', metrics=['acc'])
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['acc'])
 
     model.summary()
    
@@ -275,7 +279,7 @@ def trainRNN(train_data, aux_train_vars, train_labels):
 
     fhist = model.fit([train_data, aux_train_vars],
                       train_labels_bin,
-                      epochs=40,
+                      epochs=30,
                       batch_size=1024,
                       callbacks=[csv_logger])
 
@@ -407,6 +411,36 @@ def saveRNNPrediction(model, id_list, out_test_data, evtid_jetid_dict):
                 f.write('%s,%d\n'%(jet_id, label))
 
 #======================================================================================================        
+def saveRNNPrediction_faster(model, out_test_data, test_events):
+
+    outkey = "first_RNN"
+
+    if outkey == None:
+        return
+
+    fname_pred   = getOutName('%s_predictions.csv' %outkey)
+    
+    pdata = model.predict(out_test_data).argmax(axis=1)
+
+    i = 0 
+    sub = pd.DataFrame()
+
+    for evt_id, subset in test_events:
+        label = sub_process(pdata[i])
+        i += 1
+        
+        sub_out = pd.DataFrame()
+        
+        sub_out['id']    = subset['jet_id']
+        sub_out['label'] = np.ones(len(sub_out['id']))*label
+
+        sub = pd.concat([sub, sub_out])
+    
+    sub.to_csv(fname_pred, index=False)
+
+
+
+#======================================================================================================        
 def saveRNNPrediction_fast(model, out_test_data, test_events):
 
     outkey = "first_RNN"
@@ -485,7 +519,9 @@ def main_trainRNN_fast():
     train_file = pd.read_csv(fname)
     
     # prepare training data for RNN
-    input_var_names = ['number_of_particles_in_this_jet', 'jet_px', 'jet_py', 'jet_pz', 'jet_energy', 'jet_mass', 'jet_theta_x', 'jet_pt_x']
+    input_var_names  = ['number_of_particles_in_this_jet', 'jet_px', 'jet_py', 'jet_pz', 'jet_energy', 'jet_mass', 'RNN_u', 'RNN_c', 'RNN_b', 'RNN_g']
+    input_var_names += ['CNN_u', 'CNN_c', 'CNN_b', 'CNN_g']
+
     id_list = train_file.drop_duplicates(subset=['event_id'])['event_id']
     nevt    = len(id_list)
 
@@ -499,30 +535,30 @@ def main_trainRNN_fast():
     
     # Using groupby function will speed those code by factor ~2!
     #   -- Much faster than expect when run on large statistics: factor > 80 in full statistics
-    train_events = train_file.groupby('event_id')
+   # train_events = train_file.groupby('event_id')
 
-    for evt_id, subset in train_events:
-        out_train_label[i] = subset['label'].apply(sub_oneHotLabelFast).values[0]
+   # for evt_id, subset in train_events:
+   #     out_train_label[i] = subset['label'].apply(sub_oneHotLabelFast).values[0]
 
-        subset_data = subset[input_var_names].values
-        njet        = subset_data.shape[0]
+   #     subset_data = subset[input_var_names].values
+   #     njet        = subset_data.shape[0]
 
-        for j in range(njet):
-            if j < options.njet:
-                out_train_data[i][j] = subset_data[j]
-        i += 1
+   #     for j in range(njet):
+   #         if j < options.njet:
+   #             out_train_data[i][j] = subset_data[j]
+   #     i += 1
 
-        if i % 2000 == 0:
-            log.info('main_trainRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
-            timePrev = time.time()
+   #     if i % 2000 == 0:
+   #         log.info('main_trainRNN_fast - Processing event #%7d/%7d, delta t=%.2fs' %(i, nevt, time.time() - timePrev))
+   #         timePrev = time.time()
 
-    pd_event_vars = getEventsVars(train_events)
+   # pd_event_vars = getEventsVars(train_events)
 
-    model = trainRNN(out_train_data, pd_event_vars.values, out_train_label)
+   # model = trainRNN(out_train_data, pd_event_vars.values, out_train_label)
 
-    saveModel(model, out_train_data, "Di_RNN_event_vars" )
+   # saveModel(model, out_train_data, "Di_RNN_event_vars" )
     
-    #model = keras.models.load_model(options.weight)
+    model = keras.models.load_model(options.weight)
 
     if options.testfile and  os.path.isfile(options.testfile):
         test_file = pd.read_csv(options.testfile)
@@ -695,7 +731,25 @@ def main_trainMLP():
         test_data = test_file[input_var_names]
         savePrediction(model, test_data, test_file)
  
-        
+#======================================================================================================        
+def main_merge_files():
+
+    if len(args)  == 0:
+        log.warning('Wrong number of command line arguments: %s' %len(args))
+        return
+
+    inp_file = pd.read_csv(args[0])
+    aux_file = pd.read_csv(args[1])
+
+    out_file = pd.merge(inp_file, aux_file, on=['jet_id'], how='inner')
+
+    log.info('Start merging files')
+    
+    fout_name = getOutName('%s_merge.csv'%options.merge_name) 
+
+    out_file.to_csv(fout_name, index=False) 
+    
+     
 #======================================================================================================        
 if __name__ == '__main__':
 
@@ -703,9 +757,11 @@ if __name__ == '__main__':
 
     log.info('Start job at %s:%s' %(socket.gethostname(), os.getcwd()))
     log.info('Current time: %s' %(time.asctime(time.localtime())))
-    
-    main_trainRNN_fast()
-    #main_trainRNN()
+   
+    if options.merge_name:
+        main_merge_files()
+    else:
+        main_trainRNN_fast()
 
     log.info('Local time: %s' %(time.asctime(time.localtime())))
     log.info('Total time: %.1fs' %(time.time()-timeStart))

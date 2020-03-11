@@ -76,11 +76,24 @@ class Vector:
         self.z = z
         
         self.l = (self.x**2 + self.y**2 + self.z**2)**0.5
+        
+        if self.l < 10e-10 or self.x < 10e-10:
+            self.theta = 0
+            self.eta   = -10
+        else:
+            self.theta = math.acos(self.x/self.l)
 
-        self.theta = math.acos(self.x/self.l)
-        self.phi   = math.atan(self.z/self.y)
+            try:
+                self.eta   = - math.log(math.tan(self.theta/2) )
+            except ValueError:
+                print("theta = %.3f, x = %.3f, l = %.3f"%(self.theta, self.x, self.l))
+                self.eta = -10
+        
+        if self.y == 0:
+            self.phi = 3.14/2
+        else:
+            self.phi   = math.atan(self.z/self.y) # z axias
 
-        self.eta   = - math.log(math.tan(self.theta/2) )
 
     def getDR(self, vect):
         delta_eta = self.eta - vect.eta 
@@ -88,6 +101,9 @@ class Vector:
         return (delta_phi**2 + delta_eta**2)**0.5
 
     def getTheta(self, vect):
+        if self.l < 10e-10 or vect.l < 10e-10:
+            return 0
+
         cos_theta = (self.x*vect.x + self.y*vect.y + self.z*vect.z)/self.l/vect.l
 
         if not abs(cos_theta) <= 1:
@@ -585,6 +601,46 @@ def part_jet_e(df):
     return e
 
 #======================================================================================================
+def part_jet_p(df):
+    px = df['particle_px'].sum()
+    py = df['particle_py'].sum()
+    pz = df['particle_pz'].sum()
+    return (px, py, pz)
+
+#======================================================================================================
+def miss_particle_mass(df):
+    e  = df['miss_particle_e'] 
+    px = df['miss_particle_px']
+    py = df['miss_particle_py']
+    pz = df['miss_particle_pz']
+
+    mass2 = e**2 - px**2 - py**2 -pz**2
+
+    if mass2 > 0:
+        return mass2**0.5
+    else:
+        return -(-mass2)**0.5
+
+    return (px, py, pz)
+
+#======================================================================================================
+def miss_particle_theta(df):
+    px = df['miss_particle_px']
+    py = df['miss_particle_py']
+    pz = df['miss_particle_pz']
+
+    part_vector = Vector(px, py, pz)
+
+    jet_px = df['jet_px']
+    jet_py = df['jet_py']
+    jet_pz = df['jet_pz']
+
+    jet_vector = Vector(jet_px, jet_py, jet_pz) 
+
+    return  part_vector.getTheta(jet_vector) 
+    
+
+#======================================================================================================
 def part_jet_cone_frac_dr(df):
     jet_px = df['particle_px'].sum()
     jet_py = df['particle_py'].sum()
@@ -967,7 +1023,12 @@ def plotJetWithParticleVars(fname):
 
     pd_jets_vars = pd.DataFrame()
 
-    #pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
+    pd_jets_vars['part_jet_e'] = jets.apply(part_jet_e)
+    (pd_jets_vars['part_jet_px'],
+     pd_jets_vars['part_jet_py'],
+     pd_jets_vars['part_jet_pz'],
+     ) = zip(*jets.apply(part_jet_p))
+
     #pd_jets_vars['part_jet_n11'] = jets.apply(part_jet_n11)
     #pd_jets_vars['part_jet_n13'] = jets.apply(part_jet_n13)
 #    pd_jets_vars['part_jet_n321'] = jets.apply(part_jet_n321)
@@ -977,10 +1038,10 @@ def plotJetWithParticleVars(fname):
 #    pd_jets_vars['part_jet_n321_and_n211'] = jets.apply(part_jet_n321_and_n211)
 #    pd_jets_vars['part_jet_mass_11'] = jets.apply(part_jet_mass_11)
 #    pd_jets_vars['part_jet_mass_13'] = jets.apply(part_jet_mass_13)
-    pd_jets_vars['part_jet_count_D_mass_p'] = jets.apply(part_jet_count_D_mass_p)
-    pd_jets_vars['part_jet_count_D_mass_n'] = jets.apply(part_jet_count_D_mass_n)
-    pd_jets_vars['part_jet_count_j_mass_e'] = jets.apply(part_jet_count_j_mass_e)
-    pd_jets_vars['part_jet_count_j_mass_m'] = jets.apply(part_jet_count_j_mass_m)
+#    pd_jets_vars['part_jet_count_D_mass_p'] = jets.apply(part_jet_count_D_mass_p)
+#    pd_jets_vars['part_jet_count_D_mass_n'] = jets.apply(part_jet_count_D_mass_n)
+#    pd_jets_vars['part_jet_count_j_mass_e'] = jets.apply(part_jet_count_j_mass_e)
+#    pd_jets_vars['part_jet_count_j_mass_m'] = jets.apply(part_jet_count_j_mass_m)
 
     #(pd_jets_vars['part_jet_e_frac_dr01'], 
     # pd_jets_vars['part_jet_e_frac_dr02'],
@@ -1009,7 +1070,15 @@ def plotJetWithParticleVars(fname):
     
     merge_result = pd.merge(pd_jets_vars, jet_file, on=['jet_id'], how='inner')
 
-    #merge_result['diff_e'] = merge_result.apply(lambda x: x['jet_energy'] - x['part_jet_e'], axis = 1)
+    merge_result['miss_particle_e'] = merge_result.apply(lambda x: x['jet_energy'] - x['part_jet_e'], axis = 1)
+    merge_result['miss_particle_px'] = merge_result.apply(lambda x: x['jet_px'] - x['part_jet_px'], axis = 1)
+    merge_result['miss_particle_py'] = merge_result.apply(lambda x: x['jet_py'] - x['part_jet_py'], axis = 1)
+    merge_result['miss_particle_pz'] = merge_result.apply(lambda x: x['jet_pz'] - x['part_jet_pz'], axis = 1)
+
+    merge_result['miss_particle_mass'] = merge_result.apply(miss_particle_mass, axis = 1)
+    merge_result['miss_particle_theta'] = merge_result.apply(miss_particle_theta, axis = 1)
+
+
     #==================================================================
     # MERGE is useful, otherwise you can do as below, very ... ugly:
     #    - if options.inputjet:
@@ -1042,7 +1111,8 @@ def plotJetWithParticleVars(fname):
    # plots += ['part_jet_e_frac_dr01', 'part_jet_e_frac_dr02', 'part_jet_e_frac_dr03', 'part_jet_e_frac_dr04']
    # plots += ['part_jet_e_frac_theta01', 'part_jet_e_frac_theta02', 'part_jet_e_frac_theta03', 'part_jet_e_frac_theta04']
 
-    plots = ['part_jet_count_D_mass_p', 'part_jet_count_D_mass_n', 'part_jet_count_j_mass_e', 'part_jet_count_j_mass_m']
+    plots = ['miss_particle_e', 'miss_particle_px', 'miss_particle_py', 'miss_particle_pz', 'miss_particle_mass', 'miss_particle_theta']
+    #plots = ['part_jet_count_D_mass_p', 'part_jet_count_D_mass_n', 'part_jet_count_j_mass_e', 'part_jet_count_j_mass_m']
     #plots = ['part_jet_n321', 'part_jet_n130', 'part_jet_n211', 'part_jet_D_mass', 'part_jet_n321_and_n211']
     #plots = ['part_jet_n11', 'part_jet_n13', 'part_jet_mass_13', 'part_jet_mass_11']
 
